@@ -4,7 +4,7 @@ from flask import Flask
 from threading import Thread
 
 # دریافت متغیرهای محیطی
-TOKEN = os.environ.get('BOT_TOKEN', '*******')
+TOKEN = os.environ.get('BOT_TOKEN', '8983560084:AAHBzgRYHBnUGweunJiywhi7EpfDyL2QvMk')
 GROUP_CHAT_ID = os.environ.get('GROUP_CHAT_ID', '@linkdooni_dad')
 
 bot = telebot.TeleBot(TOKEN)
@@ -22,7 +22,7 @@ def run_flask():
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "سلام برهان عزیز! ربات لینکدونی با موفقیت روی فضای ابری روشن شد. 🚀")
+    bot.reply_to(message, "سلام! ربات لینکدونی با موفقیت روی فضای ابری روشن شد. 🚀")
 
 @bot.message_handler(func=lambda message: True)
 def handle_all(message):
