@@ -5,22 +5,19 @@ from flask import Flask
 from threading import Thread
 
 # --- تنظیمات اولیه ---
-TOKEN = "8983560084:AAHBzgRYHBnUGweunJiywhi7EpfDyL2QvMk"  # <--- حتماً توکن خودت رو اینجا بذار
-ADMIN_ID = 1867576697       # آیدی عددی خودت برای تایید لینک‌ها
+TOKEN = "8983560084:AAHBzgRYHBnUGweunJiywhi7EpfDyL2QvMk" 
+ADMIN_ID = 1867576697       
 GROUP_CHAT_ID = "@linkdooni_dad"
 
 bot = telebot.TeleBot(TOKEN)
-
-# ذخیره وضعیت کاربران (در حافظه موقت)
-# ساختار: {user_id: {'step': 'state', 'data': {}}}
-user_states = {}
-
-# --- بخش Flask برای رندر ---
 app = Flask('')
 
+# ذخیره اطلاعات کاربران
+user_states = {}
+
+# --- بخش Flask ---
 @app.route('/')
-def home():
-    return "Bot is running!"
+def home(): return "Bot is running!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 10000))
@@ -29,19 +26,31 @@ def run_flask():
 # --- کیبوردها ---
 def get_main_keyboard():
     markup = types.InlineKeyboardMarkup(row_width=2)
-    btn_make = types.InlineKeyboardButton("🛠 ساخت بنر گپ", callback_data="make_banner")
-    btn_ready = types.InlineKeyboardButton("🖼 بنر آماده دارم", callback_data="ready_banner")
-    markup.add(btn_make, btn_ready)
+    markup.add(types.InlineKeyboardButton("🛠 ساخت بنر گپ", callback_data="make_banner"),
+               types.InlineKeyboardButton("🖼 بنر آماده دارم", callback_data="ready_banner"))
     return markup
 
-def get_admin_keyboard(user_id, info_type):
+def get_admin_keyboard(user_id, mode):
     markup = types.InlineKeyboardMarkup()
-    btn_approve = types.InlineKeyboardButton("✅ تایید", callback_data=f"approve_{user_id}_{info_type}")
-    btn_reject = types.InlineKeyboardButton("❌ رد", callback_data=f"reject_{user_id}_{info_type}")
-    markup.add(btn_approve, btn_reject)
+    markup.add(types.InlineKeyboardButton("✅ تایید", callback_data=f"approve_{user_id}_{mode}"),
+               types.InlineKeyboardButton("❌ رد", callback_data=f"reject_{user_id}_{mode}"))
     return markup
 
-# --- مدیریت دستورات ---
+# --- تابع تولید متن بنر جذاب ---
+def create_fancy_banner(name, desc, link):
+    separator = "⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯"
+    banner = (
+        f"{separator}\n"
+        f"🌟 **لینکدونی رایگان پدر** 🌟\n"
+        f"{separator}\n\n"
+        f"🆔 **نام گپ:** `{name}`\n"
+        f"📝 **توضیحات:** {desc}\n\n"
+        f"🔗 **لینک ورود:**\n{link}\n\n"
+        f"{separator}"
+    )
+    return banner
+
+# --- مدیریت پیام‌ها ---
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -49,61 +58,68 @@ def send_welcome(message):
     welcome_text = (
         f"👋 سلام **{message.from_user.first_name}** عزیز!\n\n"
         f"🤖 به ربات ثبت لینک در **لینکدونی رایگان پدر** خوش اومدی. 🚀\n\n"
-        f"🎯 برای ثبت و معرفی گپ خودت، لطفاً یکی از گزینه‌های زیر رو انتخاب کن:"
+        f"🎯 برای معرفی گپ خودت، یکی از گزینه‌های زیر رو انتخاب کن:"
     )
     bot.send_message(message.chat.id, welcome_text, reply_markup=get_main_keyboard(), parse_mode="Markdown")
 
 @bot.callback_query_handler(func=lambda call: True)
-def callback_query(call):
+def handle_callbacks(call):
     user_id = call.from_user.id
     
-    # شروع فرآیند ساخت بنر
     if call.data == "make_banner":
         bot.answer_callback_query(call.id)
         user_states[user_id] = {'step': 'make_name', 'data': {}}
         bot.edit_message_text("🛠 مرحله اول: لطفاً **اسم گپ** خودت رو بنویس: 👇", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
-        bot.send_message(call.message.chat.id, "📝")
 
-    # شروع فرآیند بنر آماده
     elif call.data == "ready_banner":
         bot.answer_callback_query(call.id)
         user_states[user_id] = {'step': 'ready_upload', 'data': {}}
-        bot.edit_message_text("🖼 مرحله اول: لطفاً **عکس، لینک گپ و متن کوتاه** رو در یک پیام برای من بفرست: 👇", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
+        bot.edit_message_text("🖼 مرحله اول: لطفاً **عکس، لینک گپ و متن کوتاه** رو در یک پیام (با کپشن) بفرست: 👇", call.message.chat.id, call.message.message_id, parse_mode="Markdown")
 
-    # تایید ادمین (تایید کردن)
+    # --- بخش تایید ادمین (فقط برای ادمین) ---
     elif call.data.startswith("approve_"):
-        _, target_user_id, info_type = call.data.split("_")
+        # ساختار: approve_{user_id}_{mode}
+        parts = call.data.split("_")
+        target_user_id = int(parts[1])
+        mode = parts[2]
+        
         bot.answer_callback_query(call.id, "✅ تایید شد!")
-        bot.edit_message_text("✅ این لینک با موفقیت تایید و در لینکدونی ثبت شد! 🎉", call.message.chat.id)
+        bot.edit_message_text("✅ درخواست با موفقیت تایید و در گروه منتشر شد! 🎉", call.message.chat.id)
+
+        # حالا بنر رو در گروه منتشر می‌کنیم
+        if mode == "make":
+            u_data = user_states.get(target_user_id, {}).get('data', {})
+            banner_text = create_fancy_banner(u_data.get('name'), u_data.get('desc'), u_data.get('link', 'درخواست ارسال نشده'))
+            bot.send_photo(GROUP_CHAT_ID, u_data['photo_id'], caption=banner_text, parse_mode="Markdown")
+        else:
+            u_data = user_states.get(target_user_id, {}).get('data', {})
+            banner_text = create_fancy_banner("گپ ارسالی کاربر", u_data.get('desc', ''), "لینک در کپشن")
+            bot.send_photo(GROUP_CHAT_ID, u_data['photo_id'], caption=banner_text, parse_mode="Markdown")
+
         # اطلاع به کاربر
         try:
-            bot.send_message(target_user_id, "🎊 تبریک! گپ شما توسط ادمین تایید و در لینکدونی ثبت شد. موفق باشید! ✨")
+            bot.send_message(target_user_id, "🎊 تبریک! گپ شما تایید و در لینکدونی منتشر شد! ✨")
         except: pass
 
-    # رد کردن توسط ادمین
     elif call.data.startswith("reject_"):
-        _, target_user_id, info_type = call.data.split("_")
+        parts = call.data.split("_")
+        target_user_id = int(parts[1])
         bot.answer_callback_query(call.id, "❌ رد شد!")
-        bot.edit_message_text("❌ این درخواست رد شد. 😕", call.message.chat.id)
-        # اطلاع به کاربر
+        bot.edit_message_text("❌ درخواست رد شد. 😕", call.message.chat.id)
         try:
-            bot.send_message(target_user_id, "⚠️ متاسفانه درخواست ثبت لینک شما رد شد. دوباره تلاش کنید. 🚫")
+            bot.send_message(target_user_id, "⚠️ متاسفانه درخواست شما رد شد. 🚫")
         except: pass
-
-# --- مدیریت دریافت پیام‌ها و مراحل (State Machine) ---
 
 @bot.message_handler(content_types=['text', 'photo'])
-def handle_messages(message):
+def process_steps(message):
     user_id = message.from_user.id
-    
-    # اگر کاربر در حال طی کردن مراحل نیست، کاری نکن
     if user_id not in user_states or user_states[user_id]['step'] == 'idle':
         return
 
     state = user_states[user_id]['step']
     data = user_states[user_id]['data']
 
-    # --- مسیر ساخت بنر (Make Banner) ---
+    # مسیر ساخت بنر
     if state == 'make_name':
         data['name'] = message.text
         user_states[user_id]['step'] = 'make_desc'
@@ -117,48 +133,50 @@ def handle_messages(message):
     elif state == 'make_photo':
         if message.content_type == 'photo':
             data['photo_id'] = message.photo[-1].file_id
-            # پایان مراحل ساخت بنر - ارسال برای ادمین
-            send_to_admin_review(user_id, data, "ساخت بنر")
-            user_states[user_id] = {'step': 'idle', 'data': {}}
-            bot.send_message(user_id, "✅ اطلاعاتت دریافت شد! منتظر تایید ادمین باش... ⏳")
+            # برای ساخت بنر، نیاز به لینک هم داریم (در اینجا از کاربر می‌خوایم بعد از عکس لینک رو بده یا در مرحله قبل)
+            # جهت سادگی، فعلاً لینک رو در مرحله توضیحات می‌گیریم یا اینجا می‌پرسیم
+            bot.send_message(user_id, "🔗 حالا لطفاً **لینک گپ** رو بفرست: 👇")
+            user_states[user_id]['step'] = 'make_link'
         else:
-            bot.send_message(user_id, "❌ لطفاً فقط **عکس** بفرست! 📸")
+            bot.send_message(user_id, "❌ لطفاً فقط عکس بفرست! 📸")
 
-    # --- مسیر بنر آماده (Ready Banner) ---
+    elif state == 'make_link':
+        data['link'] = message.text
+        # ارسال به ادمین برای تایید نهایی
+        send_to_admin(user_id, data, "make")
+        user_states[user_id] = {'step': 'idle', 'data': {}}
+        bot.send_message(user_id, "✅ اطلاعات دریافت شد! منتظر تایید ادمین باش... ⏳")
+
+    # مسیر بنر آماده
     elif state == 'ready_upload':
         if message.content_type == 'photo':
-            # فرض می‌کنیم کاربر عکس، متن و لینک رو با هم فرستاده (در یک پیام)
-            # در تلگرام وقتی عکس + متن میاد، caption حاوی متن هست
             caption = message.caption if message.caption else ""
-            if len(caption) > 3: # چک کردن اینکه متن خالی نباشه
+            if len(caption) > 3:
+                # فرض می‌کنیم کاربر در کپشن: "لینک [space] توضیحات" فرستاده یا فقط لینک. 
+                # برای سادگی، کل کپشن رو به عنوان توضیحات و لینک در نظر می‌گیریم یا جدا می‌کنیم.
+                # در اینجا کل کپشن رو به عنوان محتوا می‌گیریم.
                 data['photo_id'] = message.photo[-1].file_id
-                data['content'] = caption # متن و لینک در کپشن هست
-                send_to_admin_review(user_id, data, "بنر آماده")
+                data['desc'] = caption 
+                data['link'] = "لینک در کپشن" # یا تلاش برای جدا کردن
+                send_to_admin(user_id, data, "ready")
                 user_states[user_id] = {'step': 'idle', 'data': {}}
-                bot.send_message(user_id, "✅ اطلاعاتت دریافت شد! منتظر تایید ادمین باش... ⏳")
+                bot.send_message(user_id, "✅ اطلاعات دریافت شد! منتظر تایید ادمین باش... ⏳")
             else:
                 bot.send_message(user_id, "❌ لطفاً عکس رو همراه با **لینک و متن** در کپشن بفرست! ✍️")
-        else:
-            bot.send_message(user_id, "❌ لطفاً فقط **عکس** (همراه با متن/لینک در کپشن) بفرست! 📸")
 
-# --- تابع کمکی برای ارسال به ادمین ---
-def send_to_admin_review(user_id, data, info_type):
-    admin_msg = f"🔔 **درخواست جدید: {info_type}**\n\n"
+def send_to_admin(user_id, data, mode):
+    admin_msg = f"🔔 **درخواست جدید ({mode})**\n\n"
     admin_msg += f"👤 از طرف: {user_id}\n"
     
-    if info_type == "ساخت بنر":
-        admin_msg += f"🏷 نام گپ: {data['name']}\n"
-        admin_msg += f"📝 توضیحات: {data['desc']}\n"
+    if mode == "make":
+        admin_msg += f"🏷 نام: {data.get('name')}\n📝 توضیح: {data.get('desc')}\n🔗 لینک: {data.get('link')}"
         bot.send_photo(GROUP_CHAT_ID, data['photo_id'], caption=admin_msg, reply_markup=get_admin_keyboard(user_id, "make"), parse_mode="Markdown")
-    
-    else: # بنر آماده
-        admin_msg += f"🔗 محتوا:\n{data['content']}\n"
+    else:
+        admin_msg += f"📝 محتوا:\n{data.get('desc')}"
         bot.send_photo(GROUP_CHAT_ID, data['photo_id'], caption=admin_msg, reply_markup=get_admin_keyboard(user_id, "ready"), parse_mode="Markdown")
 
-# --- اجرا ---
 if __name__ == "__main__":
     t = Thread(target=run_flask)
     t.daemon = True
     t.start()
-    print("Bot is polling...")
     bot.infinity_polling(skip_pending=True)
